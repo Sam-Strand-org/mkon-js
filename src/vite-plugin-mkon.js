@@ -200,8 +200,20 @@ export default function mkon(options = {}) {
         // 'pre' — обрабатываем .mkon раньше других плагинов Vite.
         enforce: 'pre',
 
-        /** В dev-режиме обновляем объявление при изменении .mkon. */
         configureServer(server) {
+            server.middlewares.use((req, _res, next) => {
+                if (!req.url) return next()
+                const [pathname, query = ''] = req.url.split('?')
+                if (!pathname.endsWith('.mkon')) return next()
+
+                const params = new URLSearchParams(query)
+                if (!params.has('import')) {
+                    params.set('import', '')
+                    req.url = `${pathname}?${params.toString()}`
+                }
+                next()
+            })
+
             if (!dts) return
             const ctx = { error: (/** @type {string} */ msg) => server.config.logger.error(msg) }
             /** @param {string} file */
@@ -219,6 +231,15 @@ export default function mkon(options = {}) {
                 if (!imported.delete(file)) return
                 fs.rmSync(declarationPath(file), { force: true })
             })
+        },
+
+        handleHotUpdate({ file, server }) {
+            if (!file.endsWith('.mkon')) return
+
+            const modules = server.moduleGraph.getModulesByFile(file) ?? []
+            for (const module of modules) server.moduleGraph.invalidateModule(module)
+            server.ws.send({ type: 'full-reload', path: '*' })
+            return []
         },
 
         /**

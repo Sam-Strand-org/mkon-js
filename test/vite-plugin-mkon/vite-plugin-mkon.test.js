@@ -226,6 +226,54 @@ describe('vite-plugin-mkon', () => {
         })
     })
 
+    describe('dev server', () => {
+        test('добавляет import к прямым запросам .mkon и сохраняет query', () => {
+            const plugin = mkon({ dts: false })
+            let middleware
+            plugin.configureServer({ middlewares: { use: fn => { middleware = fn } } })
+
+            const req = { url: '/src/config.mkon?as=manifest' }
+            let called = false
+            middleware(req, {}, () => { called = true })
+
+            const url = new URL(req.url, 'http://localhost')
+            expect(called).toBe(true)
+            expect(url.searchParams.has('import')).toBe(true)
+            expect(url.searchParams.get('as')).toBe('manifest')
+        })
+
+        test('не меняет запросы других файлов', () => {
+            const plugin = mkon({ dts: false })
+            let middleware
+            plugin.configureServer({ middlewares: { use: fn => { middleware = fn } } })
+
+            const req = { url: '/src/config.js' }
+            middleware(req, {}, () => {})
+            expect(req.url).toBe('/src/config.js')
+        })
+
+        test('инвалидирует query-варианты и перезагружает страницу при изменении .mkon', () => {
+            const plugin = mkon({ dts: false })
+            const module = {}
+            const invalidated = []
+            const sent = []
+            const result = plugin.handleHotUpdate({
+                file: '/src/config.mkon',
+                server: {
+                    moduleGraph: {
+                        getModulesByFile: () => new Set([module]),
+                        invalidateModule: value => invalidated.push(value),
+                    },
+                    ws: { send: value => sent.push(value) },
+                },
+            })
+
+            expect(result).toEqual([])
+            expect(invalidated).toEqual([module])
+            expect(sent).toEqual([{ type: 'full-reload', path: '*' }])
+        })
+    })
+
     describe('типы (dts)', () => {
         test('выводит примитивы, массивы и вложенные объекты', () => {
             expect(typeOf({ a: 1, b: 'x', c: true, d: null, e: [] })).toBe(
